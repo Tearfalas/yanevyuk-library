@@ -16,15 +16,8 @@ namespace YanevyukLibrary.Events{
 		{
 				public static Events Instance;
 
-				public static Event levelWon;
-				public static Event levelFailed;
-				public static Event blocksLoaded;
-				public static Event<int> newLevelBegan;
-				public static Event<int> levelOver;
-				public static Event<int> characterReachedWinBlock;
-				public static Event<int> characterDied;
-
-				public static Event<Object> characterMoved;
+				public static Event example1;
+				public static Event<int> example2;
 
 
 		}
