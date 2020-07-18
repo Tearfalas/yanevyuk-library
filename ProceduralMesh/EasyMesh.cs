@@ -1,7 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
-
+using YanevyukLibrary;
 
 
 namespace YanevyukLibrary.ProceduralMesh{
@@ -48,7 +48,8 @@ namespace YanevyukLibrary.ProceduralMesh{
     public class MeshData{
         public List<Triangle> triangles;
         public List<Vertex> vertices;
-        private Mesh _realMesh;
+        public List<Vector3> normals;
+        protected Mesh _realMesh;
 
         public Mesh realMesh{
             get{
@@ -63,6 +64,7 @@ namespace YanevyukLibrary.ProceduralMesh{
         {
             this.triangles = new List<Triangle>();
             this.vertices = new List<Vertex>();
+            this.normals = new List<Vector3>();
         }
         
         /// <summary>
@@ -79,6 +81,10 @@ namespace YanevyukLibrary.ProceduralMesh{
             vertices.AddRange(vertexarr);
         }
 
+        public void SetNormals(IEnumerable<Vector3> normalarr){
+            normals.AddRange(normalarr);
+        }
+
         public void AddTriangle(Triangle triangle){
             if(!AssertTriangle(triangle)){
                 Debug.LogError("Tried adding a triangle with references to nonexistent vertices.");
@@ -88,7 +94,7 @@ namespace YanevyukLibrary.ProceduralMesh{
             triangles.Add(triangle);
         }
 
-        private bool AssertTriangle(Triangle triangle){
+        protected bool AssertTriangle(Triangle triangle){
             int maxIndex = Mathf.Max(triangle.vertex1,triangle.vertex2,triangle.vertex3);
             if(maxIndex>=vertices.Count){
                 return false;
@@ -111,14 +117,20 @@ namespace YanevyukLibrary.ProceduralMesh{
         public Mesh ConvertToMesh(){
             if(_realMesh==null)
                 _realMesh = new Mesh();
+            _realMesh.triangles = null;
+            _realMesh.vertices = null;
             _realMesh.vertices = convertVertices().ToArray();
             _realMesh.triangles = convertTriangles().ToArray();
-            _realMesh.RecalculateNormals();
-            _realMesh.RecalculateTangents();
+            if(normals.Count!=vertices.Count){
+                _realMesh.RecalculateNormals();
+                _realMesh.RecalculateTangents();
+            }else{
+                _realMesh.normals = normals.ToArray();
+            }
             return _realMesh;
         }
 
-        private List<Vector3> convertVertices(){
+        protected List<Vector3> convertVertices(){
             List<Vector3> vector3List = new List<Vector3>();
             foreach (var item in vertices)
             {
@@ -126,7 +138,7 @@ namespace YanevyukLibrary.ProceduralMesh{
             }
             return vector3List;
         }
-        private List<int> convertTriangles(){
+        protected List<int> convertTriangles(){
             List<int> trigList = new List<int>();
             foreach (var item in triangles)
             {
@@ -296,7 +308,7 @@ namespace YanevyukLibrary.ProceduralMesh{
             }
         }
 
-        private int FixVertex(float threshold, in Dictionary<Vertex, int> existingVertices, in List<Vertex> oldVertices, int vertexindex )
+        protected int FixVertex(float threshold, in Dictionary<Vertex, int> existingVertices, in List<Vertex> oldVertices, int vertexindex )
         {
             Vertex v = oldVertices[vertexindex];
             int newIndex = -1;
@@ -336,6 +348,81 @@ namespace YanevyukLibrary.ProceduralMesh{
                 vertices[i] = v;
             }
             ConvertToMesh();
+        }
+
+        public void ApplyNoise(PerlinNoise noise,float strength = 1){
+            normals.Clear();
+            for(int i = 0;i<vertices.Count;i++){
+                Vector3 v = vertices[i];
+                Vector3 dir = v.normalized;
+                float value = triplanar(v,noise);
+                v += dir*value*strength;
+                vertices[i] = v;
+                    
+                //normals
+                SphericalCoordinate coor = (SphericalCoordinate) v;
+                SphericalCoordinate right = coor;
+                right.phi += 0.01f;
+                SphericalCoordinate left = coor;
+                left.phi -= 0.01f;
+                
+
+                SphericalCoordinate up = coor;
+                up.theta -= 0.01f;
+                SphericalCoordinate down = coor;
+                down.theta += 0.01f;
+                
+
+                float rightLeftDiff = triplanar(left,noise) - triplanar(right,noise);
+                float upDownDiff = triplanar(up,noise) - triplanar(down,noise);
+                Vector3 rightVec = Vector3.right*0.02f;
+                rightVec.y = rightLeftDiff;
+                rightVec = rightVec.normalized;
+                Vector3 forwardVec = Vector3.forward*0.02f;
+                forwardVec.y = upDownDiff;
+                forwardVec = forwardVec.normalized;
+                Vector3 onPlaneNormal = Vector3.Cross(rightVec,forwardVec);
+                //Debug.Log(onPlaneNormal);
+                Quaternion rotation = Quaternion.FromToRotation(Vector3.up,dir);
+                Vector3 normal = rotation*onPlaneNormal;
+                normal = Vector3.Slerp(-normal,dir,0.7f);
+                normals.Add(normal);
+
+
+            }
+            ConvertToMesh();
+        }
+
+        public void DoSphericalNormals(){
+            List<Vector3> sphericalNormals = new List<Vector3>();
+            foreach (var item in vertices)
+            {
+                Vector3 pos = item;
+                sphericalNormals.Add(pos.normalized);
+            }
+            SetNormals(sphericalNormals);
+        }
+
+        int k = 0;
+        public float triplanar(Vector3 pos,PerlinNoise noise){
+            Vector3 normal = pos.normalized;
+            pos += new Vector3(1.043f,1.234f,1.5943f);
+            Vector2 uvx = new Vector2(pos.y,pos.z);
+            Vector2 uvy = new Vector2(pos.x,pos.z);
+            Vector2 uvz = new Vector2(pos.x,pos.y);
+
+            float colx = noise.Get(uvx.x,uvx.y);
+            float coly = noise.Get(uvy.x,uvy.y);
+            float colz = noise.Get(uvz.x,uvz.y);
+            Vector3 blendWeight = new Vector3(Mathf.Abs(normal.x),Mathf.Abs(normal.y),Mathf.Abs(normal.z));
+            blendWeight /= (blendWeight.x+blendWeight.y+blendWeight.z);
+
+            if(k<20){
+                //Debug.Log("uvs: "+colx+" - "+coly+" - "+colz);
+                k++;
+            }
+            float final = (colx+coly)*blendWeight.x/2 + (coly+colz)*blendWeight.y/2+(colz+colx)*blendWeight.z/2;
+            return final;
         }
 
         

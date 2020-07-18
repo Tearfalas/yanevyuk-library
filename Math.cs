@@ -15,6 +15,21 @@ namespace YanevyukLibrary{
                 pathCount = -1;
             }
         }
+    
+    public struct SphericalCoordinate{
+        public float r;
+        public float phi;
+        public float theta;
+
+        public SphericalCoordinate(float r, float phi, float theta)
+        {
+            this.r = r;
+            this.phi = phi;
+            this.theta = theta;
+        }
+        public static implicit operator SphericalCoordinate(Vector3 v) => new SphericalCoordinate(v.magnitude,Mathf.Atan(v.y/v.x),Mathf.Acos(v.z/(v.magnitude)));
+        public static implicit operator Vector3(SphericalCoordinate v) => new Vector3(v.r*Mathf.Sin(v.theta)*Mathf.Cos(v.phi),v.r*Mathf.Sin(v.theta)*Mathf.Sin(v.phi), v.r*Mathf.Cos(v.theta));
+    }
     public static class Math
     {
         
