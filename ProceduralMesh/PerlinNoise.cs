@@ -82,5 +82,23 @@ public class PerlinNoise
         divisor = divisor == 0 ? 1 : divisor;
         return totalHeight/divisor;
     }
+
+    public float GetTrilinear(Vector3 pos){
+        Vector3 normal = pos.normalized;
+        pos += new Vector3(1.043f,1.234f,1.5943f);
+        Vector2 uvx = new Vector2(pos.y,pos.z);
+        Vector2 uvy = new Vector2(pos.x,pos.z);
+        Vector2 uvz = new Vector2(pos.x,pos.y);
+
+        float colx = Get(uvx.x,uvx.y);
+        float coly = Get(uvy.x,uvy.y);
+        float colz = Get(uvz.x,uvz.y);
+        Vector3 blendWeight = new Vector3(Mathf.Abs(normal.x),Mathf.Abs(normal.y),Mathf.Abs(normal.z));
+        blendWeight /= (blendWeight.x+blendWeight.y+blendWeight.z);
+
+        
+        float final = (colx+coly)*blendWeight.x/2 + (coly+colz)*blendWeight.y/2+(colz+colx)*blendWeight.z/2;
+        return final;
+    }
 }
 }

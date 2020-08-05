@@ -36,5 +36,32 @@ namespace YanevyukLibrary.ProceduralMesh{
             data.ConvertToMesh();
             return data;
         }
+
+        public static void GenerateIcosahedronUv(ref MeshData data){
+            Vector2[] uv = new Vector2[data.vertices.Count];
+            int counter = 0;
+            foreach (var item in data.vertices)
+            {
+                float y = (item.y+1)/2f; 
+
+                Vector3 v = item;
+                v.y = 0;
+                v = v.normalized;
+                
+                float xAngle = Vector3.Angle(Vector3.right,v);
+                if(Vector3.Dot(v,Vector3.forward) < 0){
+                    xAngle = 360-xAngle;
+                }
+                xAngle = xAngle/360f; //goes from 0 to 1 now.
+                float x = xAngle;
+
+                uv[counter] = new Vector2(x,y);
+                counter++;
+            }
+            data.realMesh.SetUVs(0,uv);
+            //data.realMesh.uv = uv;
+        }
+
+        
     }
 }

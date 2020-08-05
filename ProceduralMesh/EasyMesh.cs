@@ -1,5 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using Unity.Collections;
+using Unity.Jobs;
 using UnityEngine;
 using YanevyukLibrary;
 
@@ -117,6 +119,7 @@ namespace YanevyukLibrary.ProceduralMesh{
         public Mesh ConvertToMesh(){
             if(_realMesh==null)
                 _realMesh = new Mesh();
+
             _realMesh.triangles = null;
             _realMesh.vertices = null;
             _realMesh.vertices = convertVertices().ToArray();
@@ -225,6 +228,148 @@ namespace YanevyukLibrary.ProceduralMesh{
             ConvertToMesh();
         }
 
+
+        public struct RemapJob : IJobParallelFor
+        {
+            public int vertexPerTriangle;
+            [Unity.Collections.ReadOnly]
+            public NativeArray<Vector3> remapTargets;     
+            [Unity.Collections.ReadOnly]
+            public NativeArray<Vector3> toremap;  
+
+            [Unity.Collections.WriteOnly]
+            public NativeArray<Vector3> results;          
+            
+            public void Execute(int index)
+            {
+                //string message = "";
+                //message +="Executing for index "+index;
+                int startIndex = (index/(vertexPerTriangle))*3; //which remap triangle it is in
+                Vector3 fakeY = (remapTargets[startIndex+0] - (Vector3)remapTargets[startIndex+2]);
+                Vector3 fakeX = (remapTargets[startIndex+1] - (Vector3)remapTargets[startIndex+2]);
+                Vector3 third = remapTargets[startIndex+2];
+               
+                //message +="\t target indices: "+startIndex+", "+(startIndex+1).ToString()+", "+(startIndex+2).ToString();
+                //startIndex = vertexPerTriangle*index;
+                //message+="\t Remap loop start: "+startIndex+", end: "+(startIndex+vertexPerTriangle).ToString();
+                
+                Vertex vertex = toremap[index%toremap.Length];
+                Vector3 res = Vector3.zero;
+                float xratio = vertex.x;
+                float yratio = vertex.y;
+                res = third+fakeX*xratio + fakeY*yratio;
+                results[index] = res;
+                //message +="\t\tWriting results["+index.ToString()+"] = "+res.ToString();
+                    /*
+                for(int k = startIndex; k<startIndex+vertexPerTriangle;k++){
+                    Vertex vertex = toremap[k-startIndex];
+                    Vector3 res = Vector3.zero;
+                    float xratio = vertex.x;
+                    float yratio = vertex.y;
+                    res = third+fakeX*xratio + fakeY*yratio;
+                    results[k] = res;
+                    message +="\t\tWriting results["+k.ToString()+"] = "+res.ToString();
+                }*/
+                //Debug.Log(message);
+            }
+        }
+
+        private int counter = 0;
+        public IEnumerator SubdivideRoutine(int division, int maxOperationsPerFrame){
+            List<Triangle> prevTriangles = new List<Triangle>();
+            prevTriangles.AddRange(triangles);
+            List<Vertex> prevVertices = new List<Vertex>();
+            Debug.Log(prevTriangles.Count); //prints 20 for basic mesh.
+            prevVertices.AddRange(vertices);
+            triangles.Clear();
+            vertices.Clear();
+            List<Vertex> simpleVertices; //simple right triangle data.
+            List<Triangle> simpleTriangles;
+            SubdivideSimpleTriangle(division,out simpleVertices,out simpleTriangles);
+            int offset = 0;
+            int vertexPerTriangle = (2+division)*(2+division+1)/2; 
+
+           // Debug.Log("vertex per triangle: "+vertexPerTriangle);
+
+            NativeArray<Vector3> remapTargets = new NativeArray<Vector3>(prevTriangles.Count*3,Allocator.Persistent);
+            NativeArray<Vector3> results = new NativeArray<Vector3>(prevTriangles.Count*vertexPerTriangle,Allocator.Persistent);
+            NativeArray<Vector3> toremap = new NativeArray<Vector3>(simpleVertices.Count,Allocator.Persistent);
+
+            
+            int k = 0;
+            foreach (var item in prevTriangles)
+            {
+                remapTargets[k] = prevVertices[item.vertex1];
+                remapTargets[k+1] = prevVertices[item.vertex2];
+                remapTargets[k+2] = prevVertices[item.vertex3];
+                k+=3;
+            }
+            k=0;
+            foreach (var item in simpleVertices)
+            {
+                toremap[k] = item;
+                k++;
+            }
+
+            RemapJob job = new RemapJob();
+            job.results = results;
+            job.remapTargets = remapTargets;
+            job.toremap = toremap;
+            job.vertexPerTriangle = vertexPerTriangle;
+
+            JobHandle handle = job.Schedule(results.Length,24);
+
+            while(!handle.IsCompleted){
+                yield return null;
+            }
+            handle.Complete();
+            //Debug.Log("Job complete. Divisions: "+division);
+
+            k=0;
+            foreach (var item in prevTriangles)
+            {
+                /*
+                List<Vertex> targetTriangle = new List<Vertex>();
+                targetTriangle.Add(prevVertices[item.vertex1]);
+                targetTriangle.Add(prevVertices[item.vertex2]);
+                targetTriangle.Add(prevVertices[item.vertex3]);
+                */
+                List<Vertex> transformedVertices = new List<Vertex>();
+                //transformedVertices.AddRange(simpleVertices);
+                //TransformSimpleTriangle(targetTriangle,ref transformedVertices); //the positions of the new vertices are now correct.
+                //need to fix the triangle indices., we simply have to increment each value by how many vertices there already are.
+                int startIndex = k*vertexPerTriangle;
+                for(int j = startIndex;j<startIndex+vertexPerTriangle;j++){
+                    //Debug.Log(results[j]);
+                    transformedVertices.Add(results[j]);
+                }
+
+
+                AddVertices(transformedVertices);
+                for(int i = 0;i < simpleTriangles.Count;i++){
+                    Triangle t = simpleTriangles[i];
+                    t.vertex1 += offset;
+                    t.vertex2 += offset;
+                    t.vertex3 += offset;
+                    AddTriangle(t);
+                }
+                offset += transformedVertices.Count;
+                //AddTriangles(simpleTriangles);
+                counter++;
+                if(counter==maxOperationsPerFrame){
+                    counter = 0;
+                    yield return null;
+                }
+                k++;
+            }
+            remapTargets.Dispose();
+            results.Dispose();
+            toremap.Dispose();
+            //Debug.Log("Completed converting multithreaded data.");
+            MergeByDistance(5);
+            ConvertToMesh();
+        }
+
         /// <summary>
         /// Gives a simple right triangle subdivided by k, does this linearly. Each line in the simple right triangle will be split into k+1 lines.
         /// </summary>
@@ -293,7 +438,75 @@ namespace YanevyukLibrary.ProceduralMesh{
             }
         }
 
+    
+
+        private ulong HashVertex(Vertex vertex,float cellSize = 0.01f){
+            Vector3 v = vertex;
+            v *= 1000;
+            v += Vector3.one*1000;
+            v += Vector3.up*1000;
+            ulong xhash = (ulong)System.Math.Floor(v.x/cellSize)*73856093;
+            ulong yhash = (ulong)System.Math.Floor(v.y/cellSize)*19349663;
+            ulong zhash = (ulong)System.Math.Floor(v.z/cellSize)*83492791;
+            
+            ulong res = (ulong)System.Numerics.BigInteger.ModPow(xhash,yhash,ulong.MaxValue);
+            res = (ulong)System.Numerics.BigInteger.ModPow(res,zhash,ulong.MaxValue);
+            return res;
+        }
+
+        public void MergeByDistance(int threshold){
+            float t = Time.realtimeSinceStartup;
+            Dictionary<ulong,int> existing = new Dictionary<ulong, int>();
+            List<Vertex> oldVertices = new List<Vertex>();
+            oldVertices.AddRange(vertices);
+            vertices.Clear();
+            for(int i = 0; i<triangles.Count;i++)
+            {
+                Triangle trig = triangles[i];
+                {
+                    Vertex vertex = oldVertices[trig.vertex1];
+                    ulong hash = HashVertex(vertex);
+                    if(existing.ContainsKey(hash)){ //this position is already registered
+                        trig.vertex1 = existing[hash];
+                    }else{
+                        int index = AddVertex(vertex);
+                        existing.Add(hash,index);
+                        trig.vertex1 = index;
+                    }
+                }
+                {
+                    Vertex vertex = oldVertices[trig.vertex2];
+                    ulong hash = HashVertex(vertex);
+                    if(existing.ContainsKey(hash)){ //this position is already registered
+                        trig.vertex2 = existing[hash];
+                    }else{
+                        int index = AddVertex(vertex);
+                        existing.Add(hash,index);
+                        trig.vertex2 = index;
+                    }
+                }
+                {
+                    Vertex vertex = oldVertices[trig.vertex3];
+                    ulong hash = HashVertex(vertex);
+                    if(existing.ContainsKey(hash)){ //this position is already registered
+                        trig.vertex3 = existing[hash];
+                    }else{
+                        int index = AddVertex(vertex);
+                        existing.Add(hash,index);
+                        trig.vertex3 = index;
+                    }
+                }
+                
+                triangles[i] = trig;
+            }
+            
+            t = Time.realtimeSinceStartup-t;
+            Debug.Log("Fixing duplicate vertices took: "+t);
+        }
+
+        
         public void FixDuplicateVertices(float threshold = 0.001f){
+            float t = Time.realtimeSinceStartup;
             Dictionary<Vertex,int> existingVertices = new Dictionary<Vertex, int>();
             List<Vertex> oldVertices = new List<Vertex>();
             oldVertices.AddRange(vertices);
@@ -306,6 +519,8 @@ namespace YanevyukLibrary.ProceduralMesh{
                 trig.vertex3 = FixVertex(threshold, existingVertices, oldVertices, trig.vertex3);
                 triangles[i] = trig;
             }
+            t = Time.realtimeSinceStartup-t;
+            Debug.Log("Fixing duplicate vertices took: "+t);
         }
 
         protected int FixVertex(float threshold, in Dictionary<Vertex, int> existingVertices, in List<Vertex> oldVertices, int vertexindex )
