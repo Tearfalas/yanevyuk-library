@@ -146,6 +146,7 @@ namespace YanevyukLibrary
 
         }
 
+
         public static Vector3[] CenteredGrid(int cellAmount,int maxCellX, float marginx,float marginy, Vector3 center,Vector3? tangent = null, Vector3? up = null,bool averaged = false){
             if(up==null)
                 up = Vector3.up;
