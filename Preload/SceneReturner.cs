@@ -6,11 +6,11 @@ using UnityEngine.SceneManagement;
 
 public class SceneReturner : MonoBehaviour
 {
-    private List<PreloadElement> elements = new List<PreloadElement>();
+    private List<IPreloadElement> elements = new List<IPreloadElement>();
     public int sceneToLoad;
     private void Start()
     {
-        foreach (var item in gameObject.GetComponents<PreloadElement>())
+        foreach (var item in gameObject.GetComponents<IPreloadElement>())
         {
             elements.Add(item);
         }
