@@ -1,23 +1,35 @@
-﻿using System.Collections;
+﻿using Assets.Submodules.YanevyukLibrary.Preload;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class SceneReturner : MonoBehaviour
 {
-    public int frameWait;
+    private List<PreloadElement> elements = new List<PreloadElement>();
     public int sceneToLoad;
     private void Start()
     {
+        foreach (var item in gameObject.GetComponents<PreloadElement>())
+        {
+            elements.Add(item);
+        }
         StartCoroutine(waiter());
     }
 
     IEnumerator waiter(){
-        for(int i = 0; i< frameWait;i++){
+        while (true)
+        {
             yield return null;
+            foreach (var elt in elements)
+            {
+                if (!elt.isComplete())
+                {
+                    continue;
+                }
+            }
+            break;
         }
-        EventManager.Initialize();
-        print(SceneManager.GetSceneByBuildIndex(sceneToLoad).name);
         SceneManager.LoadScene(sceneToLoad);
     }
 
