@@ -18,6 +18,7 @@ public class SceneReturner : MonoBehaviour
     }
 
     IEnumerator waiter(){
+        // TODO: Doesn't seem to be working.
         while (true)
         {
             yield return null;
